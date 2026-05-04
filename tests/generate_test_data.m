@@ -57,6 +57,18 @@ rng(45); S = exp(1j * rand(M, 100)); CFR_data = rand(Nptot, 2) + 1j * rand(Nptot
 tc4 = run_case(M, nsig, Nptot, dists, cal_dist, threshold, CFR_data, S, 'multi_antenna_large_M');
 if ~isempty(tc4), test_cases{end+1} = tc4; end
 
+% Case 5: Nptot == M (Extreme smoothing limit, L=1)
+M = 10; nsig = 2; Nptot = 10; threshold = -10;
+rng(46); S = exp(1j * rand(M, 100)); CFR_data = rand(Nptot, 1) + 1j * rand(Nptot, 1);
+tc5 = run_case(M, nsig, Nptot, dists, cal_dist, threshold, CFR_data, S, 'extreme_smoothing_L1');
+if ~isempty(tc5), test_cases{end+1} = tc5; end
+
+% Case 6: nsig > found_peaks (Padding with NaN check)
+M = 5; nsig = 4; Nptot = 10; threshold = 5; % High threshold so maybe 1 or 2 peaks found, but we want nsig=4
+rng(47); S = exp(1j * rand(M, 100)); CFR_data = rand(Nptot, 1) + 1j * rand(Nptot, 1);
+tc6 = run_case(M, nsig, Nptot, dists, cal_dist, threshold, CFR_data, S, 'nsig_greater_than_peaks_padding');
+if ~isempty(tc6), test_cases{end+1} = tc6; end
+
 % Write all test cases to JSON
 fid = fopen('test_data_multi.json', 'w');
 json_str = jsonencode(test_cases);

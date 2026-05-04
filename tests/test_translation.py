@@ -13,6 +13,8 @@ try:
                    cwd=tests_dir, check=True, capture_output=True)
     subprocess.run(["octave", "--no-gui", "--no-window-system", "--quiet", "generate_gen_ch_data.m"], 
                    cwd=tests_dir, check=True, capture_output=True)
+    subprocess.run(["octave", "--no-gui", "--no-window-system", "--quiet", "generate_findpeaks_test_data.m"], 
+                   cwd=tests_dir, check=True, capture_output=True)
 except Exception as e:
     print(f"Warning: Could not regenerate Octave test data: {e}", file=sys.stderr)
 
@@ -57,9 +59,11 @@ def test_music_fb_alg_matlab_validation(name, inputs, expected):
         M, nsig, Nptot, dists, cal_dist, threshold, CFR_data, S
     )
 
-    # Compare outputs
-    expected_dist = np.array(expected['dist_MUSIC']).flatten()
-    expected_spec = np.array(expected['spec_dB']).flatten()
+    # Compare outputs. Octave JSON encoder outputs NaN as null (None in Python) and 1x1 matrices as scalars.
+    exp_dist_raw = expected['dist_MUSIC'] if isinstance(expected['dist_MUSIC'], list) else [expected['dist_MUSIC']]
+    exp_spec_raw = expected['spec_dB'] if isinstance(expected['spec_dB'], list) else [expected['spec_dB']]
+    expected_dist = np.array([np.nan if x is None else x for x in exp_dist_raw]).flatten()
+    expected_spec = np.array([np.nan if x is None else x for x in exp_spec_raw]).flatten()
     
     expected_peakwidth = expected['peakwidth']
     
@@ -243,4 +247,48 @@ def test_music_python_end_to_end_rayleigh():
     # Tolerance is slightly looser because Rayleigh fading alters the spectrum significantly
     np.testing.assert_allclose(estimated_distance, dist_LOS, rtol=1e-2, atol=0.5, 
                                err_msg=f"Rayleigh fading end-to-End ranging failed. Expected {dist_LOS}m, got {estimated_distance}m")
+
+def test_findpeaks_compat_validation():
+    """
+    Validates our custom Octave findpeaks_compat implementation against SciPy's
+    find_peaks. This ensures our MATLAB/Octave baseline generation is truly
+    representing the behavior we expect in Python.
+    """
+    import scipy.signal
+    test_file = Path(__file__).parent / 'findpeaks_test_data.json'
+    if not test_file.exists():
+        pytest.skip("findpeaks_test_data.json not found.")
+        
+    with open(test_file, 'r') as f:
+        cases = json.load(f)
+        
+    for case in cases:
+        data = np.array(case['data']).flatten()
+        threshold = case['threshold']
+        
+        expected_pks = np.array(case['pks']).flatten() if case['pks'] else np.array([])
+        expected_locs = np.array(case['locs']).flatten() if case['locs'] else np.array([])
+        expected_widths = np.array(case['widths']).flatten() if case['widths'] else np.array([])
+        expected_proms = np.array(case['proms']).flatten() if case['proms'] else np.array([])
+        
+        peaks, properties = scipy.signal.find_peaks(data, height=threshold, rel_height=0.5, width=0)
+        
+        if len(peaks) == 0:
+            assert len(expected_pks) == 0
+            continue
+            
+        peak_heights = properties['peak_heights']
+        sort_desc = np.argsort(peak_heights)[::-1]
+        
+        peaks_sorted = peaks[sort_desc]
+        widths_sorted = properties['widths'][sort_desc]
+        proms_sorted = properties['prominences'][sort_desc]
+        heights_sorted = peak_heights[sort_desc]
+        
+        # Octave locs are 1-indexed, scipy is 0-indexed
+        np.testing.assert_allclose(peaks_sorted + 1, expected_locs, err_msg=f"{case['name']}: locations differ")
+        np.testing.assert_allclose(heights_sorted, expected_pks, rtol=1e-5, atol=1e-8, err_msg=f"{case['name']}: peak heights differ")
+        np.testing.assert_allclose(proms_sorted, expected_proms, rtol=1e-5, atol=1e-8, err_msg=f"{case['name']}: prominences differ")
+        np.testing.assert_allclose(widths_sorted, expected_widths, rtol=1e-5, atol=1e-8, err_msg=f"{case['name']}: widths differ")
+
 
